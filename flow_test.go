@@ -10,14 +10,7 @@ import (
 )
 
 func TestFlow(t *testing.T) {
-	ctx := context.Background()
-	ctx = context.WithValue(ctx, "KEY1", "KEY1")
-	ctx = context.WithValue(ctx, "KEY2", "KEY2")
-	ctx = context.WithValue(ctx, "KEY1", "KEY2")
-	fmt.Println(ctx.Value("KEY1"), ctx.Value("KEY1"))
-
-	flow := NewFlow("root", WithLogger(log.New(os.Stdout, "", 0)))
-	flow.Parallel(10,
+	res, err := NewFlow("root", WithLogger(log.New(os.Stdout, "", 0))).Parallel(10,
 		NewTask("func1", FuncRunner(func(ctx context.Context) (res interface{}, err error) {
 			fmt.Println("func1")
 			return nil, nil
@@ -47,7 +40,10 @@ func TestFlow(t *testing.T) {
 				})),
 			),
 		),
-	)
-	fmt.Println(flow.Run(context.Background()))
-
+	).Run(context.Background())
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	fmt.Println(res)
 }
