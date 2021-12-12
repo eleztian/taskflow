@@ -43,13 +43,20 @@ func (f *flow) Name() string {
 func (f *flow) Sequential(ts ...Task) Flow {
 	process := f.process
 
-	f.process = FuncRunner(func(ctx context.Context) (interface{}, error) {
+	f.process = FuncRunner(func(ctx context.Context) (res interface{}, err error) {
 		if process != nil {
-			res, err := process.Run(ctx)
+			res, err = process.Run(ctx)
 			if err != nil {
 				return nil, err
 			}
 			ctx = setRes(ctx, res)
+		}
+		if f.recover {
+			defer func() {
+				if e := recover(); e != nil {
+					err = errors.Errorf("Panic:%v", e)
+				}
+			}()
 		}
 		for _, t := range ts {
 			f.logger.Printf("Start to exec %s", t.Name())
@@ -80,9 +87,16 @@ func (f *flow) Parallel(limit int64, ts ...Task) Flow {
 		wg, ctxTask := conncurrent.WithContext(ctx, int(limit))
 		for _, t := range ts {
 			task := t
-			wg.Go(func() error {
+			wg.Go(func() (err error) {
+				if f.recover {
+					defer func() {
+						if e := recover(); e != nil {
+							err = errors.Wrap(errors.Errorf("Panic:%v", e), task.Name())
+						}
+					}()
+				}
 				f.logger.Printf("Start to exec %s", task.Name())
-				_, err := task.Run(ctxTask)
+				_, err = task.Run(ctxTask)
 				if err != nil {
 					f.logger.Printf("Failed to exec %s %v", task.Name(), err)
 					return errors.Wrap(err, task.Name())
@@ -109,6 +123,15 @@ func (f *flow) Success(task Task) Flow {
 			if err != nil {
 				return nil, err
 			}
+
+			if f.recover {
+				defer func() {
+					if e := recover(); e != nil {
+						err = errors.Wrap(errors.Errorf("Panic:%v", e), task.Name())
+					}
+				}()
+			}
+
 			f.logger.Printf("Start to exec %s", task.Name())
 			res, err = task.Run(setRes(ctx, res))
 			if err != nil {
@@ -132,6 +155,13 @@ func (f *flow) Failed(task Task) Flow {
 		f.process = FuncRunner(func(ctx context.Context) (interface{}, error) {
 			res, err := process.Run(ctx)
 			if err != nil {
+				if f.recover {
+					defer func() {
+						if e := recover(); e != nil {
+							err = errors.Wrap(errors.Errorf("Panic:%v", e), task.Name())
+						}
+					}()
+				}
 				res, err = task.Run(ctx)
 				if err != nil {
 					f.logger.Printf("Failed to exec %s %v", task.Name(), err)
@@ -168,5 +198,11 @@ func getRes(ctx context.Context) interface{} {
 func WithLogger(l Logger) OptionFunc {
 	return func(flow *flow) {
 		flow.logger = l
+	}
+}
+
+func WithRecover() OptionFunc {
+	return func(flow *flow) {
+		flow.recover = true
 	}
 }
